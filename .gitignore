@@ -1,0 +1,54 @@
+# Runtime data and workflow outputs
+data/
+results/
+.snakemake/
+logs/
+benchmark/
+
+# Large single-cell / sequencing files
+*.h5ad
+*.rds
+*.rda
+*.RData
+*.loom
+*.h5
+*.hdf5
+*.mtx
+*.mtx.gz
+*.tsv.gz
+*.csv.gz
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bai
+*.cram
+*.sam
+
+# Generated reports and figures
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS/editor
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Local machine-specific configs
+config/local.yaml

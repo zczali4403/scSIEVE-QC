@@ -1,0 +1,25 @@
+name: sceasy
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.9,<3.12
+  - r-base>=4.2
+  - r-seurat
+  - r-reticulate
+  - r-remotes
+  - bioconductor-dropletutils
+  - bioconductor-singlecellexperiment
+  - bioconductor-summarizedexperiment
+  - bioconductor-scater
+  - anndata
+  - scanpy
+  - h5py
+  - pandas
+  - numpy
+  - scipy
+  - matplotlib
+  - pip
+  # sceasy is commonly installed from GitHub if not available from conda:
+  # Rscript -e 'remotes::install_github("cellgeni/sceasy")'

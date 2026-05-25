@@ -1,0 +1,3 @@
+dataset,sample,file
+Example_2024,sample1,/path/to/sample1_counts_unfiltered.h5ad
+Example_2024,sample2,/path/to/sample2_counts_unfiltered.h5ad

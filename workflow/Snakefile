@@ -1,0 +1,305 @@
+import pandas as pd
+from pathlib import Path
+
+configfile: "config/config.yaml"
+
+SAMPLE_TABLE = config.get("sample_table", "config/sample.csv")
+OUTDIR = config.get("outdir", "results").rstrip("/")
+SCEASY_ENV = config.get("envs", {}).get("sceasy", "workflow/envs/sceasy.yaml")
+SCAUTOQC_ENV = config.get("envs", {}).get("scautoqc", "workflow/envs/scautoqc.yaml")
+
+samples = pd.read_csv(SAMPLE_TABLE)
+required_columns = {"dataset", "sample", "file"}
+missing_columns = required_columns - set(samples.columns)
+if missing_columns:
+    raise ValueError(f"Missing required columns in {SAMPLE_TABLE}: {sorted(missing_columns)}")
+
+DATASETS = samples["dataset"].drop_duplicates().tolist()
+
+
+def raw_h5ad_for_sample(wildcards):
+    rows = samples[
+        (samples["dataset"] == wildcards.dataset)
+        & (samples["sample"] == wildcards.sample)
+    ]
+    if rows.empty:
+        raise ValueError(f"No input file found for {wildcards.dataset}/{wildcards.sample}")
+    return rows.iloc[0]["file"]
+
+
+def samples_for_dataset(dataset):
+    return samples.loc[samples["dataset"] == dataset, "sample"].tolist()
+
+
+rule all:
+    input:
+        # Step 00: raw h5ad -> Seurat
+        expand(
+            f"{OUTDIR}/00.from_h5ad_to_seurat/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_seurat.rds",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 01: Seurat -> SingleCellExperiment
+        expand(
+            f"{OUTDIR}/01.from_seurat_to_sce/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_sce.rds",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 02: DropletUtils empty-droplet filtering
+        expand(
+            f"{OUTDIR}/02.DropletUtils/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_seurat.rds",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        expand(
+            f"{OUTDIR}/02.DropletUtils/{{dataset}}/{{dataset}}_{{sample}}_knee_plot.png",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 03: filtered Seurat -> h5ad
+        expand(
+            f"{OUTDIR}/03.from_seurat_to_h5ad/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_adata.h5ad",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 04: Scrublet doublet removal
+        expand(
+            f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_adata.h5ad",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        expand(
+            f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_hist.png",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 05: scAutoQC
+        expand(
+            f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_scAutoQC_adata.h5ad",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        expand(
+            f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_umap_qc_cluster.png",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        expand(
+            f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_umap_qc_cluster_passQC.png",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        expand(
+            f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_qc_distributions.png",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 06: cell-count summaries
+        expand(
+            f"{OUTDIR}/06.Count_cells/{{dataset}}/{{dataset}}_{{sample}}_cell_counts.tsv",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 07: dataset-level cell-count summaries
+        expand(
+            f"{OUTDIR}/07.merge_cell_counts/{{dataset}}_all_samples_cell_counts.tsv",
+            dataset=DATASETS,
+        ),
+        # Step 08: per-sample reports
+        expand(
+            f"{OUTDIR}/08.Generate_sample_report/{{dataset}}/{{dataset}}_{{sample}}_report.pdf",
+            zip,
+            dataset=samples["dataset"],
+            sample=samples["sample"],
+        ),
+        # Step 09: dataset-level reports
+        expand(
+            f"{OUTDIR}/09.merge_dataset_reports/{{dataset}}_all_samples_report.pdf",
+            dataset=DATASETS,
+        )
+
+
+rule from_h5ad_to_seurat:
+    input:
+        raw_h5ad_for_sample
+    output:
+        f"{OUTDIR}/00.from_h5ad_to_seurat/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_seurat.rds"
+    conda:
+        SCEASY_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/00.from_h5ad_to_seurat/{wildcards.dataset}
+        Rscript workflow/scripts/00.from_h5ad_to_seurat.r {input} {output}
+        """
+
+
+rule from_seurat_to_sce:
+    input:
+        f"{OUTDIR}/00.from_h5ad_to_seurat/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_seurat.rds"
+    output:
+        f"{OUTDIR}/01.from_seurat_to_sce/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_sce.rds"
+    conda:
+        SCEASY_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/01.from_seurat_to_sce/{wildcards.dataset}
+        Rscript workflow/scripts/01.from_seurat_to_sce.r {input} {output}
+        """
+
+
+rule DropletUtils:
+    input:
+        sce=f"{OUTDIR}/01.from_seurat_to_sce/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_sce.rds",
+        seurat_raw=f"{OUTDIR}/00.from_h5ad_to_seurat/{{dataset}}/{{dataset}}_{{sample}}_counts_unfiltered_seurat.rds",
+    output:
+        seurat_filtered=f"{OUTDIR}/02.DropletUtils/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_seurat.rds",
+        plot=f"{OUTDIR}/02.DropletUtils/{{dataset}}/{{dataset}}_{{sample}}_knee_plot.png",
+    conda:
+        SCEASY_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/02.DropletUtils/{wildcards.dataset}
+        Rscript workflow/scripts/02.DropletUtils.r {input.sce} {input.seurat_raw} {output.seurat_filtered} {output.plot}
+        """
+
+
+rule from_seurat_to_h5ad:
+    input:
+        f"{OUTDIR}/02.DropletUtils/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_seurat.rds"
+    output:
+        f"{OUTDIR}/03.from_seurat_to_h5ad/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_adata.h5ad"
+    conda:
+        SCEASY_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/03.from_seurat_to_h5ad/{wildcards.dataset}
+        Rscript workflow/scripts/03.from_seurat_to_h5ad.r {input} {output}
+        """
+
+
+rule Scrublet:
+    input:
+        f"{OUTDIR}/03.from_seurat_to_h5ad/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_adata.h5ad"
+    output:
+        scrublet_filtered=f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_adata.h5ad",
+        hist_plot=f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_hist.png",
+    params:
+        expected_doublet_rate=config.get("scrublet", {}).get("expected_doublet_rate", 0.06),
+        threshold=config.get("scrublet", {}).get("threshold", 0.4),
+    conda:
+        SCAUTOQC_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/04.Scrublet/{wildcards.dataset}
+        python workflow/scripts/04.Scrublet.py {input} {output.scrublet_filtered} {output.hist_plot} {params.expected_doublet_rate} {params.threshold}
+        """
+
+
+rule scAutoQC:
+    input:
+        f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_adata.h5ad"
+    output:
+        h5ad=f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_scAutoQC_adata.h5ad",
+        umap=f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_umap_qc_cluster.png",
+        passqc=f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_umap_qc_cluster_passQC.png",
+        qcdist=f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_qc_distributions.png",
+    params:
+        out_dir=f"{OUTDIR}/05.scAutoQC/{{dataset}}",
+        min_genes=config.get("scautoqc", {}).get("min_genes", 200),
+        n_counts_max_quantile=config.get("scautoqc", {}).get("n_counts_max_quantile", 0.95),
+    conda:
+        SCAUTOQC_ENV
+    shell:
+        """
+        mkdir -p {params.out_dir}
+        python workflow/scripts/05.scAutoQC.py {input} {params.out_dir} {wildcards.dataset} {wildcards.sample} {params.min_genes} {params.n_counts_max_quantile}
+        """
+
+
+rule Count_cells:
+    input:
+        droplet=f"{OUTDIR}/03.from_seurat_to_h5ad/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_adata.h5ad",
+        scrublet=f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_adata.h5ad",
+        scautoqc=f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_scAutoQC_adata.h5ad",
+    output:
+        f"{OUTDIR}/06.Count_cells/{{dataset}}/{{dataset}}_{{sample}}_cell_counts.tsv"
+    conda:
+        SCAUTOQC_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/06.Count_cells/{wildcards.dataset}
+        python workflow/scripts/06.Count_cells.py {wildcards.sample} {input.droplet} {input.scrublet} {input.scautoqc} {output}
+        """
+
+
+rule merge_cell_counts:
+    input:
+        lambda wildcards: expand(
+            f"{OUTDIR}/06.Count_cells/{{dataset}}/{{dataset}}_{{sample}}_cell_counts.tsv",
+            dataset=wildcards.dataset,
+            sample=samples_for_dataset(wildcards.dataset),
+        )
+    output:
+        f"{OUTDIR}/07.merge_cell_counts/{{dataset}}_all_samples_cell_counts.tsv"
+    params:
+        dataset="{dataset}",
+        input_dir=lambda wildcards: f"{OUTDIR}/06.Count_cells/{wildcards.dataset}",
+    conda:
+        SCAUTOQC_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/07.merge_cell_counts
+        python workflow/scripts/07.merge_cell_counts.py {params.dataset} {params.input_dir} {output}
+        """
+
+
+rule Generate_sample_report:
+    input:
+        knee_plot=f"{OUTDIR}/02.DropletUtils/{{dataset}}/{{dataset}}_{{sample}}_knee_plot.png",
+        qc_dist=f"{OUTDIR}/05.scAutoQC/{{dataset}}/{{dataset}}_{{sample}}_qc_distributions.png",
+        cell_counts=f"{OUTDIR}/06.Count_cells/{{dataset}}/{{dataset}}_{{sample}}_cell_counts.tsv",
+        scrublet_hist=f"{OUTDIR}/04.Scrublet/{{dataset}}/{{dataset}}_{{sample}}_counts_filtered_scrublet_hist.png",
+    output:
+        pdf=f"{OUTDIR}/08.Generate_sample_report/{{dataset}}/{{dataset}}_{{sample}}_report.pdf"
+    params:
+        dataset="{dataset}",
+        sample="{sample}",
+    conda:
+        SCAUTOQC_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/08.Generate_sample_report/{wildcards.dataset}
+        python workflow/scripts/08.Generate_sample_report.py {params.dataset} {params.sample} {output.pdf} {input.knee_plot} {input.scrublet_hist} {input.qc_dist} {input.cell_counts}
+        """
+
+
+rule merge_dataset_reports:
+    input:
+        lambda wildcards: expand(
+            f"{OUTDIR}/08.Generate_sample_report/{{dataset}}/{{dataset}}_{{sample}}_report.pdf",
+            dataset=wildcards.dataset,
+            sample=samples_for_dataset(wildcards.dataset),
+        )
+    output:
+        pdf=f"{OUTDIR}/09.merge_dataset_reports/{{dataset}}_all_samples_report.pdf"
+    params:
+        dataset="{dataset}",
+    conda:
+        SCAUTOQC_ENV
+    shell:
+        """
+        mkdir -p {OUTDIR}/09.merge_dataset_reports
+        python workflow/scripts/09.merge_dataset_reports.py {params.dataset} {output.pdf} {input}
+        """

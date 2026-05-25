@@ -1,0 +1,20 @@
+name: scautoqc
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.9,<3.12
+  - scanpy
+  - anndata
+  - scrublet
+  - matplotlib
+  - seaborn
+  - pandas
+  - numpy
+  - scipy
+  - pypdf2
+  - pip
+  # Install sctk according to its upstream instructions if it is not available
+  # in your conda channels. For example:
+  # pip install sctk

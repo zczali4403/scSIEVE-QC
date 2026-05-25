@@ -1,0 +1,21 @@
+# scSIEVE-QC configuration
+
+# Sample table with columns: dataset,sample,file
+# `file` should point to the raw/unfiltered input h5ad file for each sample.
+sample_table: "config/sample.csv"
+
+# Output directory for all workflow results.
+outdir: "results"
+
+# Optional conda environment files used by Snakemake --use-conda.
+envs:
+  sceasy: "workflow/envs/sceasy.yaml"
+  scautoqc: "workflow/envs/scautoqc.yaml"
+
+scrublet:
+  expected_doublet_rate: 0.06
+  threshold: 0.4
+
+scautoqc:
+  min_genes: 200
+  n_counts_max_quantile: 0.95
