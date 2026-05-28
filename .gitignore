@@ -33,6 +33,10 @@ benchmark/
 *.jpeg
 *.svg
 
+# Keep documentation assets tracked
+!assets/
+!assets/**
+
 # Python
 __pycache__/
 *.py[cod]

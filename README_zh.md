@@ -13,6 +13,14 @@ scSIEVE-QC 是一个基于 Snakemake 的单细胞 RNA-seq 质控流程，整合�
 
 ---
 
+## 流程框架图
+
+<p align="center">
+  <img src="assets/scSIEVE-QC_framework.png" alt="scSIEVE-QC 流程框架图" width="900">
+</p>
+
+---
+
 ## 流程概览
 
 每个样本依次经过：
@@ -54,6 +62,8 @@ scSIEVE-QC/
 ├── README_zh.md
 ├── LICENSE
 ├── .gitignore
+├── assets/
+│   └── scSIEVE-QC_framework.png
 ├── config/
 │   ├── config.yaml
 │   └── sample.csv

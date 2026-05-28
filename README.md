@@ -13,6 +13,14 @@ The workflow takes per-sample raw/unfiltered `h5ad` files as input and produces 
 
 ---
 
+## Workflow framework
+
+<p align="center">
+  <img src="assets/scSIEVE-QC_framework.png" alt="scSIEVE-QC workflow framework" width="900">
+</p>
+
+---
+
 ## Workflow overview
 
 For each sample, scSIEVE-QC runs:
@@ -54,6 +62,8 @@ scSIEVE-QC/
 ├── README_zh.md
 ├── LICENSE
 ├── .gitignore
+├── assets/
+│   └── scSIEVE-QC_framework.png
 ├── config/
 │   ├── config.yaml
 │   └── sample.csv
